@@ -2047,6 +2047,7 @@ def update_fov_lines(self, context):
 
         # Set the frustum to be unselectable
         frustum.hide_select = True
+        frustum.hide_render = True
 
         # Create the frustum vertices and faces
         frustum_mesh_data.from_pydata([Vector((0, 0, 0))] + local_points, [], [(0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 1)])
@@ -2102,6 +2103,7 @@ def update_focus_distance(self, context):
         
         # Set the frustum to be unselectable
         plane.hide_select = True
+        plane.hide_render = True
 
         # Set the plane's location and rotation relative to its parent
         plane.rotation_euler = (0, 0, 0)
@@ -2781,30 +2783,16 @@ if __name__ == "__main__":
     
 #TODO Later
 
-#Preview Light is not showing accurate Radius of data in panel
-
-#make Frustrum not visible in Renders
-#buttons to add large incremental light increases
-#buttons to change color from RGB to Temperature
 
 #turn object into fake volumetric with button click?
 
-#When scene/blender first starts it reverts back to default settings
-
 #button to gain control of the light and fly it around to where you want it
-
-#maybe add another dropdown panel for editing lights you have selected? Is that too redundant?    
+    # put this maybe in the Edit Light plane
+    # snap camera to the rotations of the light
+    # add button to unsnap the camera from the light   
    
 #mess with volumetric lighting
     #allow for toggleable Boolean modifiers with all Volumetric shapes so there is not stacking volume densities
     #single button that cycles through all selected lights with children MESH objects and selected MESH objects and adds a Union Boolean modifier to each one
     #fix issue with Linked volumetric lights not getting added to collections
     
-#Add toggle for making a light into a Kelvin temp color light in both panels for realistic light colors
-    
-#Add plane that shows distance of the Focus Distance of the selected Camera    
-    #add a raycast button to calculate the distance between the camera and the center focused object, then apply that distance to the Focus Distance property field
-    
-#Project lines from the 4 corners of the selected camera that show what is in the FOV of the camera for making sure things are within the camera's sights    
-    
-#extra placement tweak settings like added rotations to the object (like for area, spot, sun lights)
