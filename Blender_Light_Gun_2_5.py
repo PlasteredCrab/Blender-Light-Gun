@@ -663,7 +663,6 @@ class RAYCAST_OT_preview_light_update(bpy.types.Operator):
                 light_data.volume_factor = settings.light_volume
 
             
-
             if settings.light_placement_mode == 'CAMERA':
                 #print("Moving Preview Light with CAMERA")
                 camera = bpy.context.scene.camera
@@ -768,6 +767,12 @@ def update_preview_light_position(scene, prev_empty=None):
         success, location, normal, index, object, matrix = ray_cast_visible_meshes(scene, depsgraph, ray_start, ray_end)
         
    #     print("update_preview_light_position() Updating XYZ NONE")
+        
+        # Check if the Preview Light exists and is parented to a camera
+        if preview_light and preview_light.parent and preview_light.parent.type == 'CAMERA':
+            # Unparent the Preview Light
+            preview_light.parent = None
+            print("Preview Light has been unparented.")
         
         if location and normal and object is not None:
             # Check if the object is a 2D object
@@ -945,6 +950,8 @@ def update_preview_light_position(scene, prev_empty=None):
     
     
 
+    #if setting.light_placement_mode != "CAMERA":
+        
     
     #if ORBIT mode is switched off and prev_empty still exists then remove it
     if settings.light_placement_mode != 'ORBIT' and prev_empty:
