@@ -2290,9 +2290,10 @@ class RAYCAST_PT_panel(bpy.types.Panel):
             sub.scale_x = 0.25
             sub.operator("raycast.decrease_light_power", text="-", emboss=True)
             
+            
             sub = row2.row()
             sub.scale_x = 0.25  
-            sub.operator("your_increase_power_operator", text="+", emboss=True)
+            sub.operator("raycast.increase_light_power", text="+", emboss=True)
 
             layout.prop(settings, "light_angle", text="Angle")
             if settings.show_advanced_properties: 
