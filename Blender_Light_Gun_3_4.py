@@ -17,6 +17,7 @@ import math
 import numpy as np
 from mathutils import Matrix, Vector
 import bpy_extras
+from bpy_extras import view3d_utils
 # from bpy.app.handlers import persistent  # unused after removing preview timer
 from mathutils import Euler
 import sys
@@ -967,8 +968,71 @@ def update_preview_light_position(scene, prev_empty=None):
     
     #if ORBIT mode is switched off and prev_empty still exists then remove it
     if settings.light_placement_mode != 'ORBIT' and prev_empty:
-        scene.collection.objects.unlink(prev_empty) 
+        scene.collection.objects.unlink(prev_empty)
         bpy.data.objects.remove(prev_empty, do_unlink=True)
+
+# Update preview light when draw lights mode is active
+def update_draw_preview_light(context, region, rv3d, coord):
+    scene = context.scene
+    settings = scene.raycast_light_tool_settings
+
+    if not (settings.preview_mode and settings.draw_lights_active):
+        return
+
+    # Ensure preview light exists and matches settings
+    bpy.ops.object.preview_light_update()
+    preview_light = scene.objects.get('Preview Light')
+    if preview_light is None:
+        return
+
+    # Build ray from mouse position
+    ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
+    view_vec = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
+    ray_target = ray_origin + view_vec * 10000000000000000
+
+    depsgraph = context.evaluated_depsgraph_get()
+    success, location, normal, index, obj, matrix = ray_cast_visible_meshes(scene, depsgraph, ray_origin, ray_target)
+
+    if location and normal and obj is not None:
+        is_2d_object = any(dimension == 0 for dimension in obj.dimensions)
+        if is_2d_object:
+            ray_direction = (ray_target - ray_origin).normalized()
+            angle = normal.angle(ray_direction)
+            if not angle > math.radians(90):
+                normal = -normal
+
+        preview_light.hide_viewport = False
+        preview_light.hide_render = False
+        preview_light.location = location
+
+        offset_distance = 0.01
+        if settings.light_type == 'AREA':
+            preview_light.location += normal * offset_distance
+
+        up = Vector((0, 0, -1))
+        quat = normal.rotation_difference(up)
+        preview_light.rotation_euler = quat.to_euler()
+
+        preview_light.rotation_euler.x *= -1
+        preview_light.rotation_euler.y *= -1
+
+        if settings.transform_override:
+            preview_light.location.x += settings.transform_location.x
+            preview_light.location.y += settings.transform_location.y
+            preview_light.location.z += settings.transform_location.z
+
+            preview_light.rotation_euler.x += settings.transform_rotation.x
+            preview_light.rotation_euler.y += settings.transform_rotation.y
+            preview_light.rotation_euler.z += settings.transform_rotation.z
+
+            preview_light.scale.x = settings.transform_scale.x
+            preview_light.scale.y = settings.transform_scale.y
+            preview_light.scale.z = settings.transform_scale.z
+    else:
+        preview_light.hide_viewport = True
+        preview_light.hide_render = True
+        preview_light.location = Vector((0, 0, 0))
+        preview_light.rotation_euler = Euler((0, 0, 0))
         
 class RAYCAST_OT_update_light_preview(bpy.types.Operator):
     bl_idname = "raycast.update_light_preview"
@@ -2526,7 +2590,7 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
             
             # Start the modal timer
             if not wm.is_draw_lights_timer_running:
-                bpy.ops.wm.modal_timer_operator()
+                bpy.ops.wm.modal_timer_operator('INVOKE_DEFAULT')
                 wm.is_draw_lights_timer_running = True
             
             settings.draw_lights_active = True  # Set the draw lights mode to active
@@ -2581,12 +2645,22 @@ class ModalTimerOperator(bpy.types.Operator):
     bl_label = "Modal Timer Operator"
 
     _timer = None
+    region = None
+    rv3d = None
+    mouse_coords = (0, 0)
 
     def modal(self, context, event):
         settings = context.scene.raycast_light_tool_settings
         wm = context.window_manager
+        if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
+            self.mouse_coords = (event.mouse_region_x, event.mouse_region_y)
+            if settings.preview_mode and settings.draw_lights_active:
+                update_draw_preview_light(context, self.region, self.rv3d, self.mouse_coords)
+
         if event.type == 'TIMER' and settings.draw_lights_active:
             bpy.ops.object.place_lights_from_strokes()
+            if settings.preview_mode:
+                update_draw_preview_light(context, self.region, self.rv3d, self.mouse_coords)
 
         active_tool = bpy.context.workspace.tools.from_space_view3d_mode('OBJECT', create=False)
 
@@ -2597,9 +2671,12 @@ class ModalTimerOperator(bpy.types.Operator):
 
         return {'PASS_THROUGH'}
 
-    def execute(self, context):
+    def invoke(self, context, event):
         wm = context.window_manager
-        self._timer = wm.event_timer_add(1.0, window=context.window)
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        self.region = context.region
+        self.rv3d = context.region_data
+        self.mouse_coords = (event.mouse_region_x, event.mouse_region_y)
         wm.modal_handler_add(self)
         wm.is_draw_lights_timer_running = True
         return {'RUNNING_MODAL'}
