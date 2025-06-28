@@ -663,11 +663,16 @@ class RAYCAST_OT_preview_light_update(bpy.types.Operator):
 
             
             if settings.light_placement_mode == 'CAMERA':
-                #print("Moving Preview Light with CAMERA")
-                camera = bpy.context.scene.camera
-                camera_matrix = camera.matrix_world
-                preview_light.matrix_world = camera_matrix.copy()
-                preview_light.parent = camera
+                # Skip camera parenting when Draw Lights mode is active
+                if settings.draw_lights_active:
+                    if preview_light.parent and preview_light.parent.type == 'CAMERA':
+                        preview_light.parent = None
+                else:
+                    camera = bpy.context.scene.camera
+                    if camera:
+                        camera_matrix = camera.matrix_world
+                        preview_light.matrix_world = camera_matrix.copy()
+                        preview_light.parent = camera
             elif settings.light_placement_mode == 'ORBIT':
                 #print("Moving Preview Light with ORBIT")
                 prev_empty = context.scene.objects.get('Preview Empty')
@@ -2607,6 +2612,8 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
                 wm.is_draw_lights_timer_running = True
             
             settings.draw_lights_active = True  # Set the draw lights mode to active
+            # Refresh preview light state when enabling draw lights
+            bpy.ops.object.preview_light_update()
             
         else:
             # Deactivate Annotate tool
@@ -2620,6 +2627,8 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
             # Disable draw lights
             settings.draw_lights_active = False
             wm.is_draw_lights_timer_running = False
+            # Refresh preview light state when disabling draw lights
+            bpy.ops.object.preview_light_update()
 
         return {'FINISHED'}
 
