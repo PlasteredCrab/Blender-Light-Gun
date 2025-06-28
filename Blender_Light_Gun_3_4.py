@@ -17,7 +17,7 @@ import math
 import numpy as np
 from mathutils import Matrix, Vector
 import bpy_extras
-from bpy.app.handlers import persistent
+# from bpy.app.handlers import persistent  # unused after removing preview timer
 from mathutils import Euler
 import sys
 from bpy.props import FloatProperty, BoolProperty
@@ -47,10 +47,6 @@ min_interval = 0.005  # 0.1 seconds, adjust as needed
         # self.original_stderr.flush()
 
 # sys.stderr = CustomErrorHandler(sys.stderr)
-
-@persistent
-def load_handler(dummy):
-    bpy.ops.raycast.update_light_preview()
 
 def raycast_from_camera(context):
     #print("raycast_from_camera")
@@ -3339,8 +3335,7 @@ def register():
     bpy.utils.register_class(RAYCAST_PT_panel)
     bpy.utils.register_class(RaycastLightToolSettings)
     bpy.utils.register_class(RAYCAST_OT_preview_light_update)
-    bpy.utils.register_class(RAYCAST_OT_update_light_preview)
-    bpy.app.handlers.load_post.append(load_handler)
+    # Update handled via light_follow_camera; modal preview timer removed
     bpy.app.handlers.depsgraph_update_pre.append(light_follow_camera)
     bpy.utils.register_class(RAYCAST_OT_reset_settings)
     bpy.utils.register_class(RAYCAST_OT_copy_settings)
@@ -3395,8 +3390,6 @@ def unregister():
     bpy.utils.unregister_class(RAYCAST_PT_panel)
     bpy.utils.unregister_class(RaycastLightToolSettings)
     bpy.utils.unregister_class(RAYCAST_OT_preview_light_update)
-    bpy.utils.unregister_class(RAYCAST_OT_update_light_preview)
-    bpy.app.handlers.load_post.remove(load_handler)
     bpy.app.handlers.depsgraph_update_pre.remove(light_follow_camera)
     bpy.utils.unregister_class(RAYCAST_OT_reset_settings)
     bpy.utils.unregister_class(RAYCAST_OT_copy_settings)
