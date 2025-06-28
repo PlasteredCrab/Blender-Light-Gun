@@ -661,8 +661,10 @@ class RAYCAST_OT_preview_light_update(bpy.types.Operator):
                 light_data.specular_factor = settings.light_specular
                 light_data.volume_factor = settings.light_volume
 
-            
-            if settings.light_placement_mode == 'CAMERA':
+            if settings.draw_lights_active:
+                # Let draw mode handle preview updates by screen ray later
+                pass
+            elif settings.light_placement_mode == 'CAMERA':
                 #print("Moving Preview Light with CAMERA")
                 camera = bpy.context.scene.camera
                 camera_matrix = camera.matrix_world
@@ -703,11 +705,6 @@ def light_follow_camera(scene):
     last_time_called = current_time
     
     settings = scene.raycast_light_tool_settings
-
-    # Skip preview updates while Draw Lights mode handles its own preview
-    if settings.draw_lights_active:
-        return
-
     preview_light = scene.objects.get('Preview Light')
     
     if settings.preview_mode and settings.light_placement_mode == 'CAMERA' and preview_light:
@@ -774,20 +771,9 @@ def ray_cast_visible_meshes(scene, depsgraph, ray_origin, ray_target, distance=1
 
 def update_preview_light_position(scene, prev_empty=None):
     settings = scene.raycast_light_tool_settings
-
-    # Skip camera-follow updates when Draw Lights is active
-    if settings.draw_lights_active:
-        return
-
     preview_light = scene.objects.get('Preview Light')
-
+    
     camera = scene.camera
-    if camera is None:
-        # Draw Lights preview does not require an active camera
-        if settings.draw_lights_active:
-            return
-        print("Preview features require an active scene camera.")
-        return  # No active camera to reference
     if settings.preview_mode and settings.light_placement_mode == "NONE":
         ray_start = camera.matrix_world.to_translation()
         ray_end = ray_start + camera.matrix_world.to_quaternion() @ Vector((0, 0, -10000000000000000))
@@ -871,6 +857,7 @@ def update_preview_light_position(scene, prev_empty=None):
             
     elif settings.preview_mode and settings.light_placement_mode == "CAMERA" and preview_light:
     #    print("update_preview_light_position() update XYZ CAMERA")
+        camera = scene.camera
         camera_matrix = camera.matrix_world
         preview_light.matrix_world = camera_matrix.copy()
     elif settings.preview_mode and settings.light_placement_mode == "ORBIT":
@@ -1046,6 +1033,8 @@ def update_draw_preview_light(context, region, rv3d, coord):
     else:
         preview_light.hide_viewport = True
         preview_light.hide_render = True
+        preview_light.location = Vector((0, 0, 0))
+        preview_light.rotation_euler = Euler((0, 0, 0))
         
 class RAYCAST_OT_update_light_preview(bpy.types.Operator):
     bl_idname = "raycast.update_light_preview"
