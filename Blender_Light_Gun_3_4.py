@@ -1031,8 +1031,6 @@ def update_draw_preview_light(context, region, rv3d, coord):
     else:
         preview_light.hide_viewport = True
         preview_light.hide_render = True
-        preview_light.location = Vector((0, 0, 0))
-        preview_light.rotation_euler = Euler((0, 0, 0))
         
 class RAYCAST_OT_update_light_preview(bpy.types.Operator):
     bl_idname = "raycast.update_light_preview"
