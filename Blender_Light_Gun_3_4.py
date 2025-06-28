@@ -2435,6 +2435,10 @@ class RAYCAST_PT_panel(bpy.types.Panel):
         layout.row().label(text="Create Light")
         layout.operator("object.raycast_create_light")
             
+        # Buttons to manage lights based on camera view
+        layout.operator("raycast.cull_lights_to_view", text="Cull Lights to Camera")
+        layout.operator("raycast.enable_all_lights", text="Enable All Lights")
+
             
 # The function to reset the transform settings
 def reset_transform_override(self, context):
@@ -2607,6 +2611,52 @@ class ModalTimerOperator(bpy.types.Operator):
     def cancel(self, context):
         context.window_manager.event_timer_remove(self._timer)
  
+# Utility to test if a light object is within the active camera view
+def is_light_in_view(scene, camera_obj, light_obj):
+    co = bpy_extras.object_utils.world_to_camera_view(scene, camera_obj, light_obj.location)
+    if 0.0 <= co.x <= 1.0 and 0.0 <= co.y <= 1.0 and 0.0 <= co.z <= 1.0:
+        dist = (light_obj.location - camera_obj.location).length
+        return camera_obj.data.clip_start <= dist <= camera_obj.data.clip_end
+    return False
+
+class RAYCAST_OT_cull_lights_to_view(bpy.types.Operator):
+    bl_idname = "raycast.cull_lights_to_view"
+    bl_label = "Cull Lights To View"
+    bl_description = "Enable lights visible to active camera and disable others"
+
+    def execute(self, context):
+        scene = context.scene
+        camera_obj = scene.camera
+        if camera_obj is None:
+            self.report({'WARNING'}, "No active camera found")
+            return {'CANCELLED'}
+        count = 0
+        for obj in scene.objects:
+            if obj.type == 'LIGHT':
+                if is_light_in_view(scene, camera_obj, obj):
+                    obj.hide_viewport = False
+                    obj.hide_render = False
+                    count += 1
+                else:
+                    obj.hide_viewport = True
+                    obj.hide_render = True
+        self.report({'INFO'}, f"{count} lights kept visible")
+        return {'FINISHED'}
+
+class RAYCAST_OT_enable_all_lights(bpy.types.Operator):
+    bl_idname = "raycast.enable_all_lights"
+    bl_label = "Enable All Lights"
+    bl_description = "Enable all light objects in the scene"
+
+    def execute(self, context):
+        for obj in context.scene.objects:
+
+            if obj.type == 'LIGHT':
+                obj.hide_viewport = False
+                obj.hide_render = False
+        self.report({'INFO'}, "All lights enabled")
+        return {'FINISHED'}
+
 def get_viewpoint_3d_coordinates(context):
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
@@ -3393,6 +3443,9 @@ def register():
     bpy.utils.register_class(ToggleDrawLightsOperator)
     bpy.utils.register_class(PlaceLightsOperator)
     bpy.utils.register_class(ModalTimerOperator)
+    bpy.utils.register_class(RAYCAST_OT_cull_lights_to_view)
+    bpy.utils.register_class(RAYCAST_OT_enable_all_lights)
+
 
 
 def unregister():
@@ -3451,6 +3504,9 @@ def unregister():
     bpy.utils.unregister_class(ToggleDrawLightsOperator)
     bpy.utils.unregister_class(PlaceLightsOperator)
     bpy.utils.unregister_class(ModalTimerOperator)
+    bpy.utils.unregister_class(RAYCAST_OT_cull_lights_to_view)
+    bpy.utils.unregister_class(RAYCAST_OT_enable_all_lights)
+
 
 if __name__ == "__main__":
     register()
