@@ -2202,11 +2202,15 @@ class RAYCAST_PT_edit_camera(bpy.types.Panel):
                 layout.prop(obj, "plane_opacity", text="Plane Opacity")
             layout.operator("raycast.shoot_raycast")
             
-        if context.scene.show_fov_lines:     
+        if context.scene.show_fov_lines:
             layout.operator("fov_toggle.start_stop", text="Disable FOV Lines")
             layout.prop(obj.data, "frustum_opacity", text="Frustum Opacity")
         else:
             layout.operator("fov_toggle.start_stop", text="Enable FOV Lines")
+
+        # Light management tools
+        layout.operator("raycast.cull_lights_to_view", text="Cull Lights to Camera")
+        layout.operator("raycast.enable_all_lights", text="Enable All Lights")
         
         
 
@@ -2434,10 +2438,6 @@ class RAYCAST_PT_panel(bpy.types.Panel):
 
         layout.row().label(text="Create Light")
         layout.operator("object.raycast_create_light")
-            
-        # Buttons to manage lights based on camera view
-        layout.operator("raycast.cull_lights_to_view", text="Cull Lights to Camera")
-        layout.operator("raycast.enable_all_lights", text="Enable All Lights")
 
             
 # The function to reset the transform settings
@@ -2611,29 +2611,44 @@ class ModalTimerOperator(bpy.types.Operator):
     def cancel(self, context):
         context.window_manager.event_timer_remove(self._timer)
  
-# Utility to test if a light object is within the active camera view
-def is_light_in_view(scene, camera_obj, light_obj):
-    co = bpy_extras.object_utils.world_to_camera_view(scene, camera_obj, light_obj.location)
-    if 0.0 <= co.x <= 1.0 and 0.0 <= co.y <= 1.0 and 0.0 <= co.z <= 1.0:
-        dist = (light_obj.location - camera_obj.location).length
-        return camera_obj.data.clip_start <= dist <= camera_obj.data.clip_end
+# Utility to test if a light contributes to the selected camera view.
+# The check looks for any visible mesh vertex within the camera frustum that can
+# be reached directly from the light without hitting other geometry.
+def is_light_affecting_camera(scene, camera_obj, light_obj, depsgraph):
+    for obj in scene.objects:
+        if obj.type != 'MESH':
+            continue
+        for corner in obj.bound_box:
+            world_corner = obj.matrix_world @ Vector(corner)
+            co = bpy_extras.object_utils.world_to_camera_view(scene, camera_obj, world_corner)
+            if 0.0 <= co.x <= 1.0 and 0.0 <= co.y <= 1.0 and 0.0 <= co.z <= 1.0:
+                direction = world_corner - light_obj.location
+                distance = direction.length
+                if distance == 0:
+                    return True
+                hit, hit_loc, hit_normal, hit_index, hit_obj, matrix = scene.ray_cast(
+                    depsgraph, light_obj.location, direction.normalized(), distance)
+                if not hit or hit_obj == obj:
+                    return True
     return False
 
 class RAYCAST_OT_cull_lights_to_view(bpy.types.Operator):
     bl_idname = "raycast.cull_lights_to_view"
     bl_label = "Cull Lights To View"
-    bl_description = "Enable lights visible to active camera and disable others"
+    bl_description = "Enable lights affecting selected camera and disable others"
 
     def execute(self, context):
         scene = context.scene
-        camera_obj = scene.camera
+        # Use the selected camera if available, otherwise fallback to active one
+        camera_obj = context.object if context.object and context.object.type == 'CAMERA' else scene.camera
         if camera_obj is None:
-            self.report({'WARNING'}, "No active camera found")
+            self.report({'WARNING'}, "No camera found")
             return {'CANCELLED'}
+        depsgraph = context.evaluated_depsgraph_get()
         count = 0
         for obj in scene.objects:
             if obj.type == 'LIGHT':
-                if is_light_in_view(scene, camera_obj, obj):
+                if is_light_affecting_camera(scene, camera_obj, obj, depsgraph):
                     obj.hide_viewport = False
                     obj.hide_render = False
                     count += 1
