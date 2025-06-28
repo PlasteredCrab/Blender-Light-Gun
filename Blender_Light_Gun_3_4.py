@@ -662,22 +662,25 @@ class RAYCAST_OT_preview_light_update(bpy.types.Operator):
                 light_data.volume_factor = settings.light_volume
 
             
-            if settings.light_placement_mode == 'CAMERA':
-                #print("Moving Preview Light with CAMERA")
-                camera = bpy.context.scene.camera
-                camera_matrix = camera.matrix_world
-                preview_light.matrix_world = camera_matrix.copy()
-                preview_light.parent = camera
-            elif settings.light_placement_mode == 'ORBIT':
-                #print("Moving Preview Light with ORBIT")
-                prev_empty = context.scene.objects.get('Preview Empty')
-                if not prev_empty:
-                    prev_empty = bpy.data.objects.new("Preview Empty", None)
-                    bpy.context.collection.objects.link(prev_empty)
-                update_preview_light_position(bpy.context.scene, prev_empty)  # Pass 'prev_empty' as an argument
-            else:
-                #print("Moving Preview Light with NONE")
-                update_preview_light_position(bpy.context.scene)
+            # Skip camera-based placement while using Draw Lights preview
+            if not settings.draw_lights_active:
+                if settings.light_placement_mode == 'CAMERA':
+                    #print("Moving Preview Light with CAMERA")
+                    camera = bpy.context.scene.camera
+                    if camera is not None:
+                        camera_matrix = camera.matrix_world
+                        preview_light.matrix_world = camera_matrix.copy()
+                        preview_light.parent = camera
+                elif settings.light_placement_mode == 'ORBIT':
+                    #print("Moving Preview Light with ORBIT")
+                    prev_empty = context.scene.objects.get('Preview Empty')
+                    if not prev_empty:
+                        prev_empty = bpy.data.objects.new("Preview Empty", None)
+                        bpy.context.collection.objects.link(prev_empty)
+                    update_preview_light_position(bpy.context.scene, prev_empty)  # Pass 'prev_empty' as an argument
+                else:
+                    #print("Moving Preview Light with NONE")
+                    update_preview_light_position(bpy.context.scene)
 
 
         else:
