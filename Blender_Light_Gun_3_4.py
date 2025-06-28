@@ -2614,14 +2614,81 @@ class ModalTimerOperator(bpy.types.Operator):
 # Utility to test if a light contributes to the selected camera view.
 # The check looks for any visible mesh vertex within the camera frustum that can
 # be reached directly from the light without hitting other geometry.
+def _compute_camera_fov(camera, scene):
+    sensor_width = camera.sensor_width
+    sensor_height = camera.sensor_height
+    focal_length = camera.lens
+
+    render = scene.render
+    swap_res = render.resolution_y > render.resolution_x
+    swap_aspect = render.pixel_aspect_y > render.pixel_aspect_x
+
+    if swap_res:
+        if not swap_aspect:
+            aspect_ratio = (render.resolution_y * render.pixel_aspect_y) / (render.resolution_x * render.pixel_aspect_x)
+        else:
+            aspect_ratio = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
+    else:
+        if not swap_aspect:
+            aspect_ratio = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
+        else:
+            aspect_ratio = (render.resolution_y * render.pixel_aspect_y) / (render.resolution_x * render.pixel_aspect_x)
+
+    if camera.sensor_fit == 'AUTO' and aspect_ratio > 1:
+        fov_x = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_y = 2 * math.atan(math.tan(fov_x / 2) / aspect_ratio)
+    elif camera.sensor_fit == 'AUTO' and aspect_ratio < 1:
+        fov_y = 2 * math.atan(sensor_height / (2 * focal_length))
+        fov_x = 2 * math.atan(math.tan(fov_y / 2) * aspect_ratio)
+    elif camera.sensor_fit == 'HORIZONTAL' and aspect_ratio > 1:
+        fov_x = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_y = 2 * math.atan(math.tan(fov_x / 2) / aspect_ratio)
+    elif camera.sensor_fit == 'HORIZONTAL' and aspect_ratio < 1:
+        fov_y = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_x = 2 * math.atan(math.tan(fov_y / 2) * aspect_ratio)
+    elif camera.sensor_fit == 'VERTICAL' and aspect_ratio > 1:
+        fov_x = 2 * math.atan(sensor_height / (2 * focal_length))
+        fov_y = 2 * math.atan(math.tan(fov_x / 2) / aspect_ratio)
+    elif camera.sensor_fit == 'VERTICAL' and aspect_ratio < 1:
+        fov_y = 2 * math.atan(sensor_height / (2 * focal_length))
+        fov_x = 2 * math.atan(math.tan(fov_y / 2) * aspect_ratio)
+    else:
+        fov_x = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_y = 2 * math.atan(sensor_height / (2 * focal_length))
+
+    return fov_x, fov_y, swap_res, swap_aspect
+
+
+def _point_in_frustum(camera_obj, point, fov_x, fov_y, swap_res, swap_aspect):
+    cam = camera_obj.data
+    local = camera_obj.matrix_world.inverted() @ point
+
+    if local.z > -cam.clip_start or local.z < -cam.clip_end:
+        return False
+
+    distance = -local.z
+    half_width = math.tan(fov_x / 2) * distance
+    half_height = math.tan(fov_y / 2) * distance
+
+    if swap_res:
+        if not swap_aspect:
+            half_width, half_height = half_height, half_width
+    else:
+        if swap_aspect:
+            half_width, half_height = half_height, half_width
+
+    return (-half_width <= local.x <= half_width and -half_height <= local.y <= half_height)
+
+
 def is_light_affecting_camera(scene, camera_obj, light_obj, depsgraph):
+    fov_x, fov_y, swap_res, swap_aspect = _compute_camera_fov(camera_obj.data, scene)
+
     for obj in scene.objects:
         if obj.type != 'MESH':
             continue
         for corner in obj.bound_box:
             world_corner = obj.matrix_world @ Vector(corner)
-            co = bpy_extras.object_utils.world_to_camera_view(scene, camera_obj, world_corner)
-            if 0.0 <= co.x <= 1.0 and 0.0 <= co.y <= 1.0 and 0.0 <= co.z <= 1.0:
+            if _point_in_frustum(camera_obj, world_corner, fov_x, fov_y, swap_res, swap_aspect):
                 direction = world_corner - light_obj.location
                 distance = direction.length
                 if distance == 0:
