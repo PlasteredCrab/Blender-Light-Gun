@@ -178,6 +178,13 @@ class RAYCAST_OT_create_light(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
+        settings = context.scene.raycast_light_tool_settings
+
+        # Prevent camera based placement while Draw Lights mode is active
+        if settings.draw_lights_active:
+            self.report({'WARNING'}, "Disable Draw Lights mode to use camera placement")
+            return {'CANCELLED'}
+
         camera = scene.camera
 
         if not camera:
@@ -2607,6 +2614,8 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
                 wm.is_draw_lights_timer_running = True
             
             settings.draw_lights_active = True  # Set the draw lights mode to active
+            # Update preview light when toggling on
+            bpy.ops.object.preview_light_update()
             
         else:
             # Deactivate Annotate tool
@@ -2620,6 +2629,8 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
             # Disable draw lights
             settings.draw_lights_active = False
             wm.is_draw_lights_timer_running = False
+            # Update preview light when toggling off
+            bpy.ops.object.preview_light_update()
 
         return {'FINISHED'}
 
