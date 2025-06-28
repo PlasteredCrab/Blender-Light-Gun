@@ -30,7 +30,8 @@ import blf
 last_time_called = 0.0
 
 # Define a minimum time interval between subsequent calls (in seconds)
-min_interval = 0.005  # 0.1 seconds, adjust as needed
+# Increased from 5ms to 50ms to reduce preview update overhead
+min_interval = 0.05
 
 
 
@@ -993,7 +994,8 @@ class RAYCAST_OT_update_light_preview(bpy.types.Operator):
 
     def execute(self, context):
         wm = context.window_manager
-        self._timer = wm.event_timer_add(0.1, window=context.window)
+        # Use the global interval for smoother preview updates
+        self._timer = wm.event_timer_add(min_interval, window=context.window)
         wm.modal_handler_add(self)
         
         return {'RUNNING_MODAL'}
@@ -1864,7 +1866,8 @@ class FOV_UPDATE_OT_timer_operator(bpy.types.Operator):
 
     def invoke(self, context, event):
         wm = context.window_manager
-        self._timer = wm.event_timer_add(1, window=context.window)
+        # Run the FOV update timer at the same interval as the preview updates
+        self._timer = wm.event_timer_add(min_interval, window=context.window)
         wm.modal_handler_add(self)
 
         # When invoking, store a reference to the current camera
@@ -2597,9 +2600,10 @@ class ModalTimerOperator(bpy.types.Operator):
 
     def execute(self, context):
         wm = context.window_manager
-        self._timer = wm.event_timer_add(1.0, window=context.window)
+        # Use the same interval for drawing lights as the camera preview
+        self._timer = wm.event_timer_add(min_interval, window=context.window)
         wm.modal_handler_add(self)
-        return {'RUNNING_MODAL'}     
+        return {'RUNNING_MODAL'}
  
 def get_viewpoint_3d_coordinates(context):
         for area in context.screen.areas:
