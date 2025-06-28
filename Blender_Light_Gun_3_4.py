@@ -2266,11 +2266,15 @@ class RAYCAST_PT_edit_camera(bpy.types.Panel):
                 layout.prop(obj, "plane_opacity", text="Plane Opacity")
             layout.operator("raycast.shoot_raycast")
             
-        if context.scene.show_fov_lines:     
+        if context.scene.show_fov_lines:
             layout.operator("fov_toggle.start_stop", text="Disable FOV Lines")
             layout.prop(obj.data, "frustum_opacity", text="Frustum Opacity")
         else:
             layout.operator("fov_toggle.start_stop", text="Enable FOV Lines")
+
+        # Light management tools
+        layout.operator("raycast.cull_lights_to_view", text="Cull Lights to Camera")
+        layout.operator("raycast.enable_all_lights", text="Enable All Lights")
         
         
 
@@ -2498,7 +2502,7 @@ class RAYCAST_PT_panel(bpy.types.Panel):
 
         layout.row().label(text="Create Light")
         layout.operator("object.raycast_create_light")
-            
+
             
 # The function to reset the transform settings
 def reset_transform_override(self, context):
@@ -2684,6 +2688,134 @@ class ModalTimerOperator(bpy.types.Operator):
     def cancel(self, context):
         context.window_manager.event_timer_remove(self._timer)
  
+# Utility to test if a light contributes to the selected camera view.
+# The check looks for any visible mesh vertex within the camera frustum that can
+# be reached directly from the light without hitting other geometry.
+def _compute_camera_fov(camera, scene):
+    sensor_width = camera.sensor_width
+    sensor_height = camera.sensor_height
+    focal_length = camera.lens
+
+    render = scene.render
+    swap_res = render.resolution_y > render.resolution_x
+    swap_aspect = render.pixel_aspect_y > render.pixel_aspect_x
+
+    if swap_res:
+        if not swap_aspect:
+            aspect_ratio = (render.resolution_y * render.pixel_aspect_y) / (render.resolution_x * render.pixel_aspect_x)
+        else:
+            aspect_ratio = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
+    else:
+        if not swap_aspect:
+            aspect_ratio = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
+        else:
+            aspect_ratio = (render.resolution_y * render.pixel_aspect_y) / (render.resolution_x * render.pixel_aspect_x)
+
+    if camera.sensor_fit == 'AUTO' and aspect_ratio > 1:
+        fov_x = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_y = 2 * math.atan(math.tan(fov_x / 2) / aspect_ratio)
+    elif camera.sensor_fit == 'AUTO' and aspect_ratio < 1:
+        fov_y = 2 * math.atan(sensor_height / (2 * focal_length))
+        fov_x = 2 * math.atan(math.tan(fov_y / 2) * aspect_ratio)
+    elif camera.sensor_fit == 'HORIZONTAL' and aspect_ratio > 1:
+        fov_x = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_y = 2 * math.atan(math.tan(fov_x / 2) / aspect_ratio)
+    elif camera.sensor_fit == 'HORIZONTAL' and aspect_ratio < 1:
+        fov_y = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_x = 2 * math.atan(math.tan(fov_y / 2) * aspect_ratio)
+    elif camera.sensor_fit == 'VERTICAL' and aspect_ratio > 1:
+        fov_x = 2 * math.atan(sensor_height / (2 * focal_length))
+        fov_y = 2 * math.atan(math.tan(fov_x / 2) / aspect_ratio)
+    elif camera.sensor_fit == 'VERTICAL' and aspect_ratio < 1:
+        fov_y = 2 * math.atan(sensor_height / (2 * focal_length))
+        fov_x = 2 * math.atan(math.tan(fov_y / 2) * aspect_ratio)
+    else:
+        fov_x = 2 * math.atan(sensor_width / (2 * focal_length))
+        fov_y = 2 * math.atan(sensor_height / (2 * focal_length))
+
+    return fov_x, fov_y, swap_res, swap_aspect
+
+
+def _point_in_frustum(camera_obj, point, fov_x, fov_y, swap_res, swap_aspect):
+    cam = camera_obj.data
+    local = camera_obj.matrix_world.inverted() @ point
+
+    if local.z > -cam.clip_start or local.z < -cam.clip_end:
+        return False
+
+    distance = -local.z
+    half_width = math.tan(fov_x / 2) * distance
+    half_height = math.tan(fov_y / 2) * distance
+
+    if swap_res:
+        if not swap_aspect:
+            half_width, half_height = half_height, half_width
+    else:
+        if swap_aspect:
+            half_width, half_height = half_height, half_width
+
+    return (-half_width <= local.x <= half_width and -half_height <= local.y <= half_height)
+
+
+def is_light_affecting_camera(scene, camera_obj, light_obj, depsgraph):
+    fov_x, fov_y, swap_res, swap_aspect = _compute_camera_fov(camera_obj.data, scene)
+
+    for obj in scene.objects:
+        if obj.type != 'MESH':
+            continue
+        for corner in obj.bound_box:
+            world_corner = obj.matrix_world @ Vector(corner)
+            if _point_in_frustum(camera_obj, world_corner, fov_x, fov_y, swap_res, swap_aspect):
+                direction = world_corner - light_obj.location
+                distance = direction.length
+                if distance == 0:
+                    return True
+                hit, hit_loc, hit_normal, hit_index, hit_obj, matrix = scene.ray_cast(
+                    depsgraph, light_obj.location, direction.normalized(), distance)
+                if not hit or hit_obj == obj:
+                    return True
+    return False
+
+class RAYCAST_OT_cull_lights_to_view(bpy.types.Operator):
+    bl_idname = "raycast.cull_lights_to_view"
+    bl_label = "Cull Lights To View"
+    bl_description = "Enable lights affecting selected camera and disable others"
+
+    def execute(self, context):
+        scene = context.scene
+        # Use the selected camera if available, otherwise fallback to active one
+        camera_obj = context.object if context.object and context.object.type == 'CAMERA' else scene.camera
+        if camera_obj is None:
+            self.report({'WARNING'}, "No camera found")
+            return {'CANCELLED'}
+        depsgraph = context.evaluated_depsgraph_get()
+        count = 0
+        for obj in scene.objects:
+            if obj.type == 'LIGHT':
+                if is_light_affecting_camera(scene, camera_obj, obj, depsgraph):
+                    obj.hide_viewport = False
+                    obj.hide_render = False
+                    count += 1
+                else:
+                    obj.hide_viewport = True
+                    obj.hide_render = True
+        self.report({'INFO'}, f"{count} lights kept visible")
+        return {'FINISHED'}
+
+class RAYCAST_OT_enable_all_lights(bpy.types.Operator):
+    bl_idname = "raycast.enable_all_lights"
+    bl_label = "Enable All Lights"
+    bl_description = "Enable all light objects in the scene"
+
+    def execute(self, context):
+        for obj in context.scene.objects:
+
+            if obj.type == 'LIGHT':
+                obj.hide_viewport = False
+                obj.hide_render = False
+        self.report({'INFO'}, "All lights enabled")
+        return {'FINISHED'}
+
 def get_viewpoint_3d_coordinates(context):
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
@@ -3470,6 +3602,9 @@ def register():
     bpy.utils.register_class(ToggleDrawLightsOperator)
     bpy.utils.register_class(PlaceLightsOperator)
     bpy.utils.register_class(ModalTimerOperator)
+    bpy.utils.register_class(RAYCAST_OT_cull_lights_to_view)
+    bpy.utils.register_class(RAYCAST_OT_enable_all_lights)
+
 
 
 def unregister():
@@ -3528,6 +3663,9 @@ def unregister():
     bpy.utils.unregister_class(ToggleDrawLightsOperator)
     bpy.utils.unregister_class(PlaceLightsOperator)
     bpy.utils.unregister_class(ModalTimerOperator)
+    bpy.utils.unregister_class(RAYCAST_OT_cull_lights_to_view)
+    bpy.utils.unregister_class(RAYCAST_OT_enable_all_lights)
+
 
 if __name__ == "__main__":
     register()
