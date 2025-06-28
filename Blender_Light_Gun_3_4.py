@@ -1849,6 +1849,8 @@ class RAYCAST_OT_shoot_raycast(bpy.types.Operator):
 #updates FOV Frustum upon changes to settings 
 
 bpy.types.WindowManager.is_fov_timer_running = bpy.props.BoolProperty(default=False)
+# Track running state of the draw lights timer
+bpy.types.WindowManager.is_draw_lights_timer_running = bpy.props.BoolProperty(default=False)
 
 def get_active_scene_camera():
     scene = bpy.context.scene
@@ -2493,6 +2495,7 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
     
     def execute(self, context):
         settings = context.scene.raycast_light_tool_settings
+        wm = context.window_manager
         gp = bpy.data.grease_pencils.get("Annotations")
         
         # Create Annotations grease pencil data if it doesn't exist
@@ -2525,8 +2528,10 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
                 gp.layers.active = light_layer
                 light_layer.annotation_opacity = 0.0
             
-            # Start the modal timer (implement this as needed)
-            bpy.ops.wm.modal_timer_operator()
+            # Start the modal timer
+            if not wm.is_draw_lights_timer_running:
+                bpy.ops.wm.modal_timer_operator()
+                wm.is_draw_lights_timer_running = True
             
             settings.draw_lights_active = True  # Set the draw lights mode to active
             
@@ -2539,10 +2544,9 @@ class ToggleDrawLightsOperator(bpy.types.Operator):
             if light_layer:
                 gp.layers.remove(light_layer)
                 
-            # Optionally, you can stop the modal timer here
-            # Your implementation to stop the timer
-            
-            settings.draw_lights_active = False  # Set the draw lights mode to inactive
+            # Disable draw lights
+            settings.draw_lights_active = False
+            wm.is_draw_lights_timer_running = False
 
         return {'FINISHED'}
 
@@ -2584,13 +2588,15 @@ class ModalTimerOperator(bpy.types.Operator):
 
     def modal(self, context, event):
         settings = context.scene.raycast_light_tool_settings
+        wm = context.window_manager
         if event.type == 'TIMER' and settings.draw_lights_active:
-            # your existing code
             bpy.ops.object.place_lights_from_strokes()
-        
+
         active_tool = bpy.context.workspace.tools.from_space_view3d_mode('OBJECT', create=False)
-        
-        if not settings.draw_lights_active or (active_tool == True and active_tool.idname != "builtin.annotate"):
+
+        if not settings.draw_lights_active or (active_tool and active_tool.idname != "builtin.annotate"):
+            self.cancel(context)
+            wm.is_draw_lights_timer_running = False
             return {'FINISHED'}
 
         return {'PASS_THROUGH'}
@@ -2599,7 +2605,11 @@ class ModalTimerOperator(bpy.types.Operator):
         wm = context.window_manager
         self._timer = wm.event_timer_add(1.0, window=context.window)
         wm.modal_handler_add(self)
-        return {'RUNNING_MODAL'}     
+        wm.is_draw_lights_timer_running = True
+        return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        context.window_manager.event_timer_remove(self._timer)
  
 def get_viewpoint_3d_coordinates(context):
         for area in context.screen.areas:
